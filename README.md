@@ -72,6 +72,63 @@ For a random target, the expected number of tries is approximately half the sear
 For a live demo target:
 - Use **C = 10..36** and **L = 7..9**, depending on your measured throughput (hashes/sec).
 
+## Demo timing with measured speed (3.24 GH/s)
+
+With **3.24 GH/s** measured, you can design a clean **“MD5 is weak”** demo with predictable timing.
+
+- Your speed: **3.24 × 10^9 hashes/sec**
+- Expected time (average-case):
+
+  **t ≈ (C^L) / (2 × 3.24e9)**
+
+Where:
+- **C** = charset size  
+- **L** = length  
+
+---
+
+## What’s “hackable” live (good demo timings)
+
+### Option 1 — Lowercase only (C = 26)
+
+- **L = 8**  
+  Space: 26^8 = **2.088e11**  
+  Expected tries: **1.044e11**  
+  Time: 1.044e11 / 3.24e9 = **32.2 s** ✅ (perfect live demo)
+
+- **L = 9**  
+  Space: 26^9 = **5.429e12**  
+  Expected time ≈ **14.0 min**
+
+**Conclusion:** lowercase, **length 8** ≈ **30 seconds** average.
+
+---
+
+### Option 2 — Alphanumeric (C = 62)
+
+- **L = 6**  
+  Space: 62^6 = **5.68e10**  
+  Expected tries: **2.84e10**  
+  Time: 2.84e10 / 3.24e9 = **8.8 s** ✅
+
+- **L = 7**  
+  Expected time ≈ **9.1 min**
+
+**Conclusion:** alnum, **length 6** ≈ **9 seconds** average.
+
+---
+
+### Option 3 — Digits only (C = 10)
+
+- **L = 10**  
+  Space: 10^10  
+  Expected tries: **5e9**  
+  Time: 5e9 / 3.24e9 = **1.54 s** ✅
+
+- **L = 12**  
+  Expected time ≈ **154 s** (~2.5 min)
+
+**Conclusion:** digits are often **too fast** unless you increase length.
 ---
 
 ## Security & legal disclaimer (restricted use)

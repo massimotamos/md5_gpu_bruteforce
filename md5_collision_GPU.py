@@ -67,7 +67,6 @@ __kernel void md5_suffix_kernel(
     __global int* found_flag,
     __global uchar* result_plaintext   // length = prefix_len + suffix_len
 ) {
-    // Fast early exit
     if (*found_flag) return;
 
     ulong gid = (ulong)get_global_id(0);
@@ -84,7 +83,6 @@ __kernel void md5_suffix_kernel(
         plaintext[i] = prefix[i];
     }
 
-    // If suffix_len == 0, this loop does not run (fine)
     ulong temp = idx;
     for (int pos = (int)suffix_len - 1; pos >= 0; pos--) {
         plaintext[prefix_len + (uint)pos] = charset[temp % charset_length];
@@ -115,7 +113,7 @@ __kernel void md5_suffix_kernel(
     msg[62] = (uchar)((bit_len >> 48) & 0xFF);
     msg[63] = (uchar)((bit_len >> 56) & 0xFF);
 
-    // Parse into 16 32-bit words (little-endian)
+    // Parse into 16 32-bit words
     uint M[16];
     for (uint i = 0; i < 16; i++) {
         M[i] = ((uint)msg[i * 4]) |
@@ -190,34 +188,6 @@ __kernel void md5_suffix_kernel(
 }
 """
 
-def _fmt_secs(seconds: float) -> str:
-    if seconds == float("inf") or seconds != seconds:
-        return "N/A"
-    seconds = int(max(0, seconds))
-    d, rem = divmod(seconds, 86400)
-    h, rem = divmod(rem, 3600)
-    m, s = divmod(rem, 60)
-    if d > 0:
-        return f"{d}d {h:02d}h {m:02d}m {s:02d}s"
-    if h > 0:
-        return f"{h:02d}h {m:02d}m {s:02d}s"
-    if m > 0:
-        return f"{m:02d}m {s:02d}s"
-    return f"{s}s"
-
-
-def _fmt_rate(rate: float) -> str:
-    if rate < 1e3:
-        return f"{rate:.0f} H/s"
-    if rate < 1e6:
-        return f"{rate/1e3:.2f} KH/s"
-    if rate < 1e9:
-        return f"{rate/1e6:.2f} MH/s"
-    if rate < 1e12:
-        return f"{rate/1e9:.2f} GH/s"
-    return f"{rate/1e12:.2f} TH/s"
-
-
 def main():
     # Full punctuation + letters + digits, excluding space
     charset = string.ascii_letters + string.digits + string.punctuation
@@ -246,11 +216,8 @@ def main():
     # Total length of the brute-forced plaintext
     total_len = len(target_string)
 
-    # Total candidates for this exact-length brute force
-    total_candidates = pow(charset_len, total_len)
-
     # Split: CPU prefix, GPU suffix
-    # Keep CPU prefix small for usability; adapt for short strings.
+    # Keep CPU prefix small for usability; for short strings adapt gracefully.
     prefix_len = min(2, total_len)
     suffix_len = total_len - prefix_len
     msg_len = prefix_len + suffix_len  # == total_len
@@ -266,7 +233,7 @@ def main():
         print("ERROR: suffix index space exceeds 64-bit; reduce suffix_len or charset.")
         sys.exit(1)
 
-    # OpenCL setup (choose first platform/device)
+    # OpenCL setup (choose first platform/device like your original)
     platforms = cl.get_platforms()
     if not platforms:
         print("ERROR: No OpenCL platforms found.")
@@ -293,24 +260,20 @@ def main():
     result_buf = cl.Buffer(context, mf.WRITE_ONLY, size=msg_len)
     prefix_buf = cl.Buffer(context, mf.READ_ONLY, size=prefix_len)
 
-    # Build kernel
+    # Build
     program = cl.Program(context, kernel_code).build()
     kernel = program.md5_suffix_kernel
 
-    # Chunk size (tune as needed)
+    # Chunking: keep it reasonable (tune if needed)
     CHUNK = 25_000_000
 
-    start_time = time.perf_counter()
-    last_print = start_time
-    PRINT_EVERY_SECONDS = 1.0
-
+    start_time = time.time()
     checked_prefixes = 0
     total_prefixes = charset_len ** prefix_len
 
     # Iterate all prefixes on CPU
     for p_idx in itertools.product(range(charset_len), repeat=prefix_len):
         checked_prefixes += 1
-        base_tested_before_prefix = (checked_prefixes - 1) * suffix_total
 
         # reset found flag for this prefix
         found_np[0] = 0
@@ -328,10 +291,11 @@ def main():
                 break
 
             current = int(min(CHUNK, suffix_total - start_index))
-            tested_so_far = base_tested_before_prefix + start_index
 
+            # NDRange: global is number of candidates in this chunk
             global_size = (current,)
 
+            # args:
             kernel.set_args(
                 charset_buf,
                 np.uint32(charset_len),
@@ -345,7 +309,7 @@ def main():
                 result_buf
             )
 
-            # Let the driver pick a valid local size (robust)
+            # Reliable across devices: let OpenCL choose local size
             cl.enqueue_nd_range_kernel(queue, kernel, global_size, None)
             queue.finish()
 
@@ -354,44 +318,24 @@ def main():
             if found_np[0] == 1:
                 cl.enqueue_copy(queue, result_np, result_buf)
                 found_plain = result_np.tobytes().decode("ascii", errors="strict")
-
-                elapsed = time.perf_counter() - start_time
-                tested = tested_so_far + current
-                rate = tested / elapsed if elapsed > 0 else 0.0
-
+                elapsed = time.time() - start_time
                 print("\nFOUND!")
                 print(f"Plaintext:  {found_plain}")
                 print(f"Time:       {elapsed:.2f}s")
-                print(f"Rate:       {_fmt_rate(rate)}")
                 print(f"Prefixes tried: {checked_prefixes}/{total_prefixes}")
                 return
 
-            # periodic status
-            now = time.perf_counter()
-            if (now - last_print) >= PRINT_EVERY_SECONDS:
-                tested = tested_so_far + current
-                elapsed = now - start_time
-                rate = tested / elapsed if elapsed > 0 else 0.0
-                remaining = total_candidates - tested
-                eta = remaining / rate if rate > 0 else float("inf")
-                pct = (tested / total_candidates) * 100.0 if total_candidates else 0.0
-
-                sys.stdout.write(
-                    f"\rProgress: {pct:6.2f}% | Tested: {tested:.3e}/{total_candidates:.3e} | "
-                    f"Rate: {_fmt_rate(rate)} | ETA: {_fmt_secs(eta)}"
-                )
-                sys.stdout.flush()
-                last_print = now
-
             start_index += current
 
-    elapsed = time.perf_counter() - start_time
-    rate_final = total_candidates / elapsed if elapsed > 0 else 0.0
+        # progress (coarse)
+        if checked_prefixes % 250 == 0:
+            pct = (checked_prefixes / total_prefixes) * 100.0
+            sys.stdout.write(f"\rPrefix progress: {pct:.2f}%")
+            sys.stdout.flush()
 
+    elapsed = time.time() - start_time
     print("\nNot found.")
     print(f"Time: {elapsed:.2f}s")
-    print(f"Rate: {_fmt_rate(rate_final)}")
-
 
 if __name__ == "__main__":
     main()

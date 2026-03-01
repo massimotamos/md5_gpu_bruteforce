@@ -50,8 +50,6 @@ This code is provided **strictly for security training, internal awareness, and 
 
 By using, copying, or modifying this repository, **you accept full responsibility for compliance** with applicable laws and policies. If you do not agree, **do not use this code**.
 
-> Recommendation: If you want this restriction to be enforceable, add a **LICENSE** file (e.g., a custom “Security Training Only / No Unauthorized Use” license). A README disclaimer alone is not a complete licensing strategy.
-
 ---
 
 ## Why MD5 is considered broken (high level)

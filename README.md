@@ -131,6 +131,21 @@ Where:
 **Conclusion:** digits are often **too fast** unless you increase length.
 ---
 
+===Comparison MD5 Vs SHA3 ===
+
+| Len | Charset | MD5 Rate | MD5 Time(s) | SHA3-256 Rate | SHA3-256 Time(s) | Speedup (MD5/SHA3) |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 26 | 72.87 KH/s | 0.00 | 78.40 KH/s | 0.00 | 0.93x |
+| 2 | 26 | 1.94 MH/s | 0.00 | 2.24 MH/s | 0.00 | 0.87x |
+| 3 | 26 | 43.35 MH/s | 0.00 | 54.58 MH/s | 0.00 | 0.79x |
+| 4 | 26 | 1.06 GH/s | 0.00 | 797.20 MH/s | 0.00 | 1.33x |
+| 5 | 26 | 5.52 GH/s | 0.00 | 2.00 GH/s | 0.01 | 2.76x |
+| 6 | 26 | 6.67 GH/s | 0.05 | 2.25 GH/s | 0.14 | 2.96x |
+| 7 | 26 | 3.32 GH/s | 1.20 | 1.11 GH/s | 3.60 | 2.99x |
+| 8 | 26 | 3.11 GH/s | 31.49 | 1.02 GH/s | 95.12 | 3.05x |
+
+---
+
 ## Security & legal disclaimer (restricted use)
 
 **RESTRICTED USE — READ CAREFULLY**

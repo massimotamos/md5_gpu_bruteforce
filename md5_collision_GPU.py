@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 # Property Massimo Tamos
 # Use only for educational purposes is allowed.
-# By using this script you agree to take all responsilibites for misuse.
+# By using this script you agree to take all responsibilities for misuse.
 
 import os
 import pyopencl as cl
@@ -10,17 +11,21 @@ import string
 import hashlib
 import math
 import sys
+import itertools
 
-# Enable OpenCL compiler output for debugging
-os.environ['PYOPENCL_COMPILER_OUTPUT'] = '1'
+os.environ["PYOPENCL_COMPILER_OUTPUT"] = "1"
 
-# OpenCL Kernel Code (complete MD5 implementation)
-kernel_code = """
+# ----------------------------
+# OpenCL Kernel Code (MD5, single-block, GPU brute force on suffix)
+# ----------------------------
+kernel_code = r"""
 #define F(x, y, z) ((x & y) | (~x & z))
 #define G(x, y, z) ((x & z) | (y & ~z))
 #define H(x, y, z) (x ^ y ^ z)
 #define I(x, y, z) (y ^ (x | ~z))
 #define LEFTROTATE(x, c) (((x) << (c)) | ((x) >> (32 - (c))))
+
+#define MAX_LEN 24
 
 __constant uint T[64] = {
     0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee,
@@ -51,52 +56,66 @@ __constant uint S[64] = {
     6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21
 };
 
-__kernel void md5_bruteforce_kernel(__global const uchar* charset,
-                                    const uint charset_length,
-                                    const uint max_length,
-                                    __global const uchar* target_hash,
-                                    __global int* result_found,
-                                    __global uchar* result_plaintext,
-                                    const ulong start_index,
-                                    const ulong total_combinations) {
-    ulong gid = start_index + get_global_id(0);
+__kernel void md5_suffix_kernel(
+    __global const uchar* charset,
+    const uint charset_length,
+    __global const uchar* prefix,
+    const uint prefix_len,
+    const uint suffix_len,
+    const ulong start_index,
+    const ulong suffix_total,
+    __global const uchar* target_hash,
+    __global int* found_flag,
+    __global uchar* result_plaintext   // length = prefix_len + suffix_len
+) {
+    if (*found_flag) return;
 
-    if (*result_found)
-        return;
+    ulong gid = (ulong)get_global_id(0);
+    ulong idx = start_index + gid;
+    if (idx >= suffix_total) return;
 
-    if (gid >= total_combinations)
-        return;
+    uint msg_len = prefix_len + suffix_len;
+    if (msg_len > MAX_LEN) return;
 
-    // Generate plaintext based on gid
-    uchar plaintext[8] = {0}; // Max length of 8 characters
-    ulong temp = gid;
+    // Build plaintext = prefix + suffix(idx)
+    uchar plaintext[MAX_LEN] = {0};
 
-    for (int pos = max_length - 1; pos >= 0; pos--) {
-        plaintext[pos] = charset[temp % charset_length];
+    for (uint i = 0; i < prefix_len; i++) {
+        plaintext[i] = prefix[i];
+    }
+
+    ulong temp = idx;
+    for (int pos = (int)suffix_len - 1; pos >= 0; pos--) {
+        plaintext[prefix_len + (uint)pos] = charset[temp % charset_length];
         temp /= charset_length;
     }
 
-    // Prepare the initial MD5 state
+    // MD5 initial state
     uint a0 = 0x67452301;
     uint b0 = 0xefcdab89;
     uint c0 = 0x98badcfe;
     uint d0 = 0x10325476;
 
-    // Prepare padded message
+    // Single-block message buffer (works up to 55 bytes)
+    // (we only use msg_len=10 in your demo)
     uchar msg[64] = {0};
-    for (uint i = 0; i < max_length; i++) {
+    for (uint i = 0; i < msg_len; i++) {
         msg[i] = plaintext[i];
     }
-    msg[max_length] = 0x80;
+    msg[msg_len] = (uchar)0x80;
 
-    // Append original length in bits
-    uint bit_len = max_length * 8;
-    msg[56] = bit_len & 0xFF;
-    msg[57] = (bit_len >> 8) & 0xFF;
-    msg[58] = (bit_len >> 16) & 0xFF;
-    msg[59] = (bit_len >> 24) & 0xFF;
+    // 64-bit length in bits
+    ulong bit_len = ((ulong)msg_len) * 8;
+    msg[56] = (uchar)(bit_len & 0xFF);
+    msg[57] = (uchar)((bit_len >> 8) & 0xFF);
+    msg[58] = (uchar)((bit_len >> 16) & 0xFF);
+    msg[59] = (uchar)((bit_len >> 24) & 0xFF);
+    msg[60] = (uchar)((bit_len >> 32) & 0xFF);
+    msg[61] = (uchar)((bit_len >> 40) & 0xFF);
+    msg[62] = (uchar)((bit_len >> 48) & 0xFF);
+    msg[63] = (uchar)((bit_len >> 56) & 0xFF);
 
-    // Process message in 512-bit chunks
+    // Parse into 16 32-bit words
     uint M[16];
     for (uint i = 0; i < 16; i++) {
         M[i] = ((uint)msg[i * 4]) |
@@ -105,70 +124,65 @@ __kernel void md5_bruteforce_kernel(__global const uchar* charset,
                (((uint)msg[i * 4 + 3]) << 24);
     }
 
-    // Main MD5 algorithm loop
     uint A = a0, B = b0, C = c0, D = d0;
 
     for (uint i = 0; i < 64; i++) {
-        uint F, g;
+        uint f, g;
         if (i < 16) {
-            F = (B & C) | (~B & D);
+            f = (B & C) | (~B & D);
             g = i;
         } else if (i < 32) {
-            F = (D & B) | (~D & C);
+            f = (D & B) | (~D & C);
             g = (5 * i + 1) % 16;
         } else if (i < 48) {
-            F = B ^ C ^ D;
+            f = B ^ C ^ D;
             g = (3 * i + 5) % 16;
         } else {
-            F = C ^ (B | ~D);
+            f = C ^ (B | ~D);
             g = (7 * i) % 16;
         }
-        F = F + A + T[i] + M[g];
+
+        f = f + A + T[i] + M[g];
         A = D;
         D = C;
         C = B;
-        B = B + LEFTROTATE(F, S[i]);
+        B = B + LEFTROTATE(f, S[i]);
     }
 
-    // Add state to the previous values
-    A += a0;
-    B += b0;
-    C += c0;
-    D += d0;
+    A += a0; B += b0; C += c0; D += d0;
 
-    // Compute hash
+    // digest little-endian
     uchar hash[16];
-    hash[0] = A & 0xFF;
-    hash[1] = (A >> 8) & 0xFF;
-    hash[2] = (A >> 16) & 0xFF;
-    hash[3] = (A >> 24) & 0xFF;
-    hash[4] = B & 0xFF;
-    hash[5] = (B >> 8) & 0xFF;
-    hash[6] = (B >> 16) & 0xFF;
-    hash[7] = (B >> 24) & 0xFF;
-    hash[8] = C & 0xFF;
-    hash[9] = (C >> 8) & 0xFF;
-    hash[10] = (C >> 16) & 0xFF;
-    hash[11] = (C >> 24) & 0xFF;
-    hash[12] = D & 0xFF;
-    hash[13] = (D >> 8) & 0xFF;
-    hash[14] = (D >> 16) & 0xFF;
-    hash[15] = (D >> 24) & 0xFF;
+    hash[0]  = (uchar)(A & 0xFF);
+    hash[1]  = (uchar)((A >> 8) & 0xFF);
+    hash[2]  = (uchar)((A >> 16) & 0xFF);
+    hash[3]  = (uchar)((A >> 24) & 0xFF);
 
-    // Compare computed hash with target_hash
+    hash[4]  = (uchar)(B & 0xFF);
+    hash[5]  = (uchar)((B >> 8) & 0xFF);
+    hash[6]  = (uchar)((B >> 16) & 0xFF);
+    hash[7]  = (uchar)((B >> 24) & 0xFF);
+
+    hash[8]  = (uchar)(C & 0xFF);
+    hash[9]  = (uchar)((C >> 8) & 0xFF);
+    hash[10] = (uchar)((C >> 16) & 0xFF);
+    hash[11] = (uchar)((C >> 24) & 0xFF);
+
+    hash[12] = (uchar)(D & 0xFF);
+    hash[13] = (uchar)((D >> 8) & 0xFF);
+    hash[14] = (uchar)((D >> 16) & 0xFF);
+    hash[15] = (uchar)((D >> 24) & 0xFF);
+
+    // Compare
     int match = 1;
     for (uint i = 0; i < 16; i++) {
-        if (hash[i] != target_hash[i]) {
-            match = 0;
-            break;
-        }
+        if (hash[i] != target_hash[i]) { match = 0; break; }
     }
 
-    // If match found, write plaintext to result_plaintext and set result_found
     if (match) {
-        int res = atomic_cmpxchg(result_found, 0, 1);
+        int res = atomic_cmpxchg(found_flag, 0, 1);
         if (res == 0) {
-            for (uint i = 0; i < max_length; i++) {
+            for (uint i = 0; i < msg_len; i++) {
                 result_plaintext[i] = plaintext[i];
             }
         }
@@ -176,113 +190,148 @@ __kernel void md5_bruteforce_kernel(__global const uchar* charset,
 }
 """
 
-def brute_force_md5_opencl(target_string, charset, max_length):
-    # Compute MD5 hash of the target string
-    target_hash_hex = hashlib.md5(target_string.encode('utf-8')).hexdigest()
-    target_hash_bytes = bytes.fromhex(target_hash_hex)
-    print(f"Target string: {target_string}")
-    print(f"Target MD5 hash: {target_hash_hex}")
+def main():
+    # Full punctuation + letters + digits, excluding space
+    charset = string.ascii_letters + string.digits + string.punctuation
+    charset_len = len(charset)  # 94
 
-    # Create OpenCL context and queue
+    target_string = input("Enter a target string of length 10 (chars must be in [A-Za-z0-9 punctuation]): ").rstrip("\n")
+    if len(target_string) != 10:
+        print("ERROR: This demo is configured for length=10.")
+        sys.exit(1)
+
+    # Validate charset membership
+    bad = [c for c in target_string if c not in charset]
+    if bad:
+        print(f"ERROR: Target contains characters not in charset: {bad}")
+        sys.exit(1)
+
+    target_hash_hex = hashlib.md5(target_string.encode("ascii")).hexdigest()
+    target_hash_bytes = bytes.fromhex(target_hash_hex)
+    print(f"Target string:   {target_string}")
+    print(f"Target MD5 hash: {target_hash_hex}")
+    print(f"Charset length:  {charset_len} (letters+digits+punctuation; no space)")
+
+    # Split: CPU prefix, GPU suffix (to fit u64 indexing)
+    prefix_len = 2
+    suffix_len = 8
+    msg_len = prefix_len + suffix_len
+
+    if msg_len > 24:
+        print("ERROR: msg_len exceeds MAX_LEN in kernel.")
+        sys.exit(1)
+
+    # Suffix total must fit u64
+    suffix_total = pow(charset_len, suffix_len)
+    MAX_U64 = (1 << 64) - 1
+    if suffix_total > MAX_U64:
+        print("ERROR: suffix index space exceeds 64-bit; reduce suffix_len or charset.")
+        sys.exit(1)
+
+    # OpenCL setup (choose first platform/device like your original)
     platforms = cl.get_platforms()
-    devices = platforms[0].get_devices()
-    device = devices[0]
+    if not platforms:
+        print("ERROR: No OpenCL platforms found.")
+        sys.exit(1)
+
+    device = platforms[0].get_devices()[0]
     context = cl.Context([device])
     queue = cl.CommandQueue(context)
 
-    # Get the maximum work group size for the device
-    max_work_group_size = device.get_info(cl.device_info.MAX_WORK_GROUP_SIZE)
-    print(f"Max work group size: {max_work_group_size}")
+    max_wg = device.get_info(cl.device_info.MAX_WORK_GROUP_SIZE)
+    print(f"OpenCL device: {device.name}")
+    print(f"Max work-group size: {max_wg}")
 
-    # Prepare data
-    charset_np = np.array([ord(c) for c in charset], dtype=np.uint8)
-    target_hash_np = np.frombuffer(target_hash_bytes, dtype=np.uint8)
-    result_found_np = np.array([0], dtype=np.int32)
-    result_plaintext_np = np.zeros(max_length, dtype=np.uint8)
-
-    # Create buffers
+    # Buffers
     mf = cl.mem_flags
+    charset_np = np.frombuffer(charset.encode("ascii"), dtype=np.uint8)
+    target_hash_np = np.frombuffer(target_hash_bytes, dtype=np.uint8)
+    found_np = np.zeros(1, dtype=np.int32)
+    result_np = np.zeros(msg_len, dtype=np.uint8)
+
     charset_buf = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=charset_np)
     target_hash_buf = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=target_hash_np)
-    result_found_buf = cl.Buffer(context, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=result_found_np)
-    result_plaintext_buf = cl.Buffer(context, mf.WRITE_ONLY, size=64)
+    found_buf = cl.Buffer(context, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=found_np)
+    result_buf = cl.Buffer(context, mf.WRITE_ONLY, size=msg_len)
+    prefix_buf = cl.Buffer(context, mf.READ_ONLY, size=prefix_len)
 
-    # Compile the kernel
+    # Build
     program = cl.Program(context, kernel_code).build()
-    kernel = program.md5_bruteforce_kernel
+    kernel = program.md5_suffix_kernel
 
-    # Calculate total number of combinations
-    total_combinations = len(charset) ** max_length
+    # Chunking: keep it reasonable; 10–50 million is usually safer than 1B
+    CHUNK = 25_000_000
 
-    # Adjust chunk size to fit the GPU memory
-    chunk_size = min(1_000_000_000, total_combinations)
-    num_chunks = math.ceil(total_combinations / chunk_size)
-
+    # Iterate all prefixes on CPU
     start_time = time.time()
-    found = False
-    last_printed_progress = 0
+    checked_prefixes = 0
 
-    for chunk in range(num_chunks):
-        start_index = chunk * chunk_size
-        end_index = min(start_index + chunk_size, total_combinations)
-        current_chunk_size = end_index - start_index
+    # Precompute prefix indices for speed
+    # 94^2 = 8,836 prefixes => fine
+    for p_idx in itertools.product(range(charset_len), repeat=prefix_len):
+        checked_prefixes += 1
 
-        # Reset result_found buffer
-        result_found_np[0] = 0
-        cl.enqueue_copy(queue, result_found_buf, result_found_np)
+        # reset found flag for this prefix
+        found_np[0] = 0
+        cl.enqueue_copy(queue, found_buf, found_np)
 
-        # Set kernel arguments
-        kernel.set_arg(0, charset_buf)
-        kernel.set_arg(1, np.uint32(len(charset)))
-        kernel.set_arg(2, np.uint32(max_length))
-        kernel.set_arg(3, target_hash_buf)
-        kernel.set_arg(4, result_found_buf)
-        kernel.set_arg(5, result_plaintext_buf)
-        kernel.set_arg(6, np.uint64(start_index))
-        kernel.set_arg(7, np.uint64(total_combinations))
+        prefix_bytes = bytes(charset_np[i] for i in p_idx)
+        cl.enqueue_copy(queue, prefix_buf, np.frombuffer(prefix_bytes, dtype=np.uint8))
 
-        # Set global and local work sizes
-        global_work_size = (current_chunk_size,)
+        # Launch GPU over suffix space in chunks
+        start_index = 0
+        while start_index < suffix_total:
+            # optional early-out: if already found, stop launching
+            cl.enqueue_copy(queue, found_np, found_buf)
+            if found_np[0] == 1:
+                break
 
-        # If local_work_size is too large, let OpenCL determine the best size
-        local_work_size = (256,) if 256 <= max_work_group_size else None
+            current = min(CHUNK, suffix_total - start_index)
+            global_size = (int(current),)
+            local_size = (256,) if 256 <= max_wg else None
 
-        try:
-            # Execute the kernel
-            cl.enqueue_nd_range_kernel(queue, kernel, global_work_size, local_work_size)
+            # args:
+            # charset, charset_length, prefix, prefix_len, suffix_len,
+            # start_index, suffix_total, target_hash, found_flag, result_plaintext
+            kernel.set_args(
+                charset_buf,
+                np.uint32(charset_len),
+                prefix_buf,
+                np.uint32(prefix_len),
+                np.uint32(suffix_len),
+                np.uint64(start_index),
+                np.uint64(suffix_total),
+                target_hash_buf,
+                found_buf,
+                result_buf
+            )
+
+            cl.enqueue_nd_range_kernel(queue, kernel, global_size, local_size)
             queue.finish()
-        except cl.LogicError as e:
-            print(f"Error: {e}")
-            print(f"Reducing local work size. Trying auto mode.")
-            local_work_size = None
-            cl.enqueue_nd_range_kernel(queue, kernel, global_work_size, local_work_size)
-            queue.finish()
 
-        # Check if the result was found
-        cl.enqueue_copy(queue, result_found_np, result_found_buf)
-        if result_found_np[0]:
-            cl.enqueue_copy(queue, result_plaintext_np, result_plaintext_buf)
-            found_plaintext = ''.join(map(chr, result_plaintext_np)).strip('\x00')
-            end_time = time.time()
-            print(f"\nFound plaintext: {found_plaintext}")
-            print(f"Time taken: {end_time - start_time:.2f} seconds")
-            found = True
-            break
+            # check after each chunk
+            cl.enqueue_copy(queue, found_np, found_buf)
+            if found_np[0] == 1:
+                cl.enqueue_copy(queue, result_np, result_buf)
+                found_plain = result_np.tobytes().decode("ascii", errors="strict")
+                elapsed = time.time() - start_time
+                print("\nFOUND!")
+                print(f"Plaintext:  {found_plain}")
+                print(f"Time:       {elapsed:.2f}s")
+                print(f"Prefixes tried: {checked_prefixes}/{charset_len**prefix_len}")
+                return
 
-        # Calculate and print progress
-        progress = ((chunk + 1) * chunk_size / total_combinations) * 100
-        if progress - last_printed_progress >= 1:  # Print every 1% increment
-            sys.stdout.write(f"\rProgress: {progress:.2f}%")
+            start_index += current
+
+        # progress (coarse)
+        if checked_prefixes % 250 == 0:
+            pct = (checked_prefixes / (charset_len ** prefix_len)) * 100.0
+            sys.stdout.write(f"\rPrefix progress: {pct:.2f}%")
             sys.stdout.flush()
-            last_printed_progress = progress
 
-    if not found:
-        end_time = time.time()
-        print("\nPlaintext not found.")
-        print(f"Time taken: {end_time - start_time:.2f} seconds")
+    elapsed = time.time() - start_time
+    print("\nNot found.")
+    print(f"Time: {elapsed:.2f}s")
 
 if __name__ == "__main__":
-    target_string = input("Enter the target string: ").strip()
-    charset = string.ascii_lowercase
-    max_length = len(target_string)
-    brute_force_md5_opencl(target_string, charset, max_length)
+    main()

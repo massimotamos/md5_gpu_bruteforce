@@ -1,83 +1,151 @@
-# md5_gpu_bruteforce
-
-## Finds a string starting from the md5 hash leveraging on the GPU by using OpenCL
-
 # md5_gpu_bruteforce (GPU / OpenCL)
 
-**Purpose:** Educational security demo that illustrates why **MD5 must not be used for security-relevant hashing** (e.g., password storage, digital signatures, integrity protection against active attackers).
+Educational security demo that makes **“MD5 is weak”** tangible by showing how quickly a GPU can brute-force short inputs.
 
-This repository contains a small proof-of-concept that uses **GPU acceleration (OpenCL via PyOpenCL)** to demonstrate how quickly an attacker can search a keyspace and recover short plaintext inputs associated with an MD5 hash (i.e., *practical brute-force feasibility for weak inputs*).
+This repo contains:
+- A **GPU-accelerated MD5 preimage demo** (OpenCL via PyOpenCL)
+- A **GPU-accelerated SHA3-256 preimage demo** (Keccak / SHA3)
+- A small benchmarking workflow to compare throughput and time across input lengths
 
-MD5 is also widely considered **cryptographically broken for collision resistance** (i.e., it is feasible to craft two different inputs producing the same MD5 digest), which is one of the reasons MD5 has been deprecated for many security use cases.
-
----
-
-## Why this exists (audit / security awareness)
-
-The original goal of this project was to provide a **hands-on, management-level demonstration** for a Head of Security:
-
-- **“MD5 is outdated and unsafe”** is often understood only abstractly.
-- A short, reproducible demo makes the risk tangible: GPU parallelism makes brute-force search significantly faster than typical CPU-only assumptions.
-- The intent is to drive **risk-based decisions**: migrate to modern primitives (e.g., SHA-256/SHA-512 for general hashing; password hashing with a dedicated KDF such as Argon2/bcrypt/scrypt; signatures with modern schemes), and remove MD5 from security architectures.
+> Important framing for students  
+> - **MD5 is broken for collision resistance** and must not be used for security-relevant hashing.  
+> - **SHA3-256 is cryptographically stronger than MD5**, but it is still a *fast* hash.  
+> - For password storage, the correct mitigation is a **slow / memory-hard password hash** (Argon2 / scrypt / bcrypt) plus high-entropy secrets.
 
 ---
 
-## What this repo *does*
+## What this demo is (and is not)
 
-- Demonstrates an **MD5 brute-force search accelerated on the GPU** using **OpenCL** (`md5_collision_GPU.py`).
-- Uses a defined character set and a fixed length to search for a plaintext that matches a target MD5 digest (or equivalently, validates a candidate by hashing and comparing).
+### ✅ This repo demonstrates
+- **GPU parallelism** via OpenCL kernels (low-level programming)
+- **Brute-force feasibility** for weak/short secrets (preimage search against a known hash)
+- A practical comparison: **MD5 vs SHA3-256** on the same GPU
 
----
-
-## What this repo *does NOT* do
-
-- It is **not** a “universal MD5 cracker” and it is **not** intended for real-world cracking.
-- It is **not** a collision-generation framework.  
-  (MD5 collision generation is a separate topic; the high-level security point remains: **MD5 collision resistance is broken**, and MD5 should not be relied upon where collisions matter.)
+### ❌ This repo does NOT
+- Provide a real-world “universal cracker”
+- Generate *MD5 collisions* (that is a different topic and uses different techniques)
 
 ---
 
-## Security & legal disclaimer (restricted use)
+## Quick start (Ubuntu)
+
+### 1) System dependencies
+```bash
+sudo apt update
+sudo apt install -y git openssh-client python3-venv python3-pip ocl-icd-opencl-dev opencl-headers
+```
+
+### 2) Python venv + deps
+```bash
+cd md5_gpu_bruteforce
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+### 3) Run the MD5 demo
+```bash
+./md5_collision_GPU.py
+```
+
+### 4) Run the SHA3-256 demo
+```bash
+./sha3_gpu_bruteforce_demo.py
+```
+
+---
+
+## Scripts
+
+### `md5_collision_GPU.py`
+- GPU brute-force **MD5** preimage demo
+- Automatically infers a realistic charset class from the input (digits / lower / upper / letters / alnum / printable ASCII)
+- Prints:
+  - target plaintext (for demo)
+  - target MD5 hash
+  - measured throughput (**hashes/sec**)
+  - progress + ETA
+
+### `sha3_gpu_bruteforce_demo.py`
+- Same demo pattern for **SHA3-256**
+- Prints the target **SHA3-256** hash and measures throughput
+
+### Benchmark driver (optional)
+If you use a benchmark driver to produce the table below, keep the maximum length modest (e.g., **N=8**).  
+Lengths ≥ 9 grow quickly even with a GPU.
+
+---
+
+## Choosing a “hackable” string (live demo)
+
+Expected time (average-case) depends on:
+- Charset size **C**
+- Length **L**
+- Measured speed **R** (hashes/sec)
+
+Average-case time:
+\[
+t \approx \frac{C^L}{2R}
+\]
+
+**Practical live demo guidance** (example, GPU measured around a few GH/s):
+- Lowercase (C=26), **L=8** → tens of seconds to a couple of minutes (excellent for live demo)
+- Alnum (C=62), **L=6** → a few seconds
+
+---
+
+## MD5 vs SHA3-256 comparison (measured)
+
+The table below was measured on an **NVIDIA GeForce RTX 5060 Ti** with charset size **26** (lowercase).  
+It illustrates the key point: **SHA3-256 is slower than MD5**, but still fast enough that weak secrets are brute-forceable.
+
+| Len | Charset | MD5 Rate | MD5 Time(s) | SHA3-256 Rate | SHA3-256 Time(s) | Speedup (MD5/SHA3) |
+|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 26 | 72.87 KH/s | 0.00 | 78.40 KH/s | 0.00 | 0.93x |
+| 2 | 26 | 1.94 MH/s | 0.00 | 2.24 MH/s | 0.00 | 0.87x |
+| 3 | 26 | 43.35 MH/s | 0.00 | 54.58 MH/s | 0.00 | 0.79x |
+| 4 | 26 | 1.06 GH/s | 0.00 | 797.20 MH/s | 0.00 | 1.33x |
+| 5 | 26 | 5.52 GH/s | 0.00 | 2.00 GH/s | 0.01 | 2.76x |
+| 6 | 26 | 6.67 GH/s | 0.05 | 2.25 GH/s | 0.14 | 2.96x |
+| 7 | 26 | 3.32 GH/s | 1.20 | 1.11 GH/s | 3.60 | 2.99x |
+| 8 | 26 | 3.11 GH/s | 31.49 | 1.02 GH/s | 95.12 | 3.05x |
+
+### Graphs
+Add the generated images to the repository (suggested location: `docs/`) and the README will render them on GitHub.
+
+**Throughput (log scale):**
+![MD5 vs SHA3-256 throughput](docs/md5_vs_sha3_rate.png)
+
+**Time-to-find (seconds):**
+![MD5 vs SHA3-256 time](docs/md5_vs_sha3_time.png)
+
+---
+
+## Security & legal disclaimer
 
 **RESTRICTED USE — READ CAREFULLY**
 
-This code is provided **strictly for security training, internal awareness, and defensive verification in controlled environments** (e.g., approved lab exercises, secure coding training, sanctioned demonstrations).
+This repository is provided strictly for:
+- security training
+- internal awareness
+- defensive verification in controlled lab environments
 
-**The author explicitly prohibits any use of this code for:**
-- unauthorized access attempts,
-- password cracking against systems you do not own or explicitly administer,
-- any activity that violates laws, contracts, policies, or ethical guidelines.
+It must not be used for unauthorized access attempts, password cracking against systems you do not own/operate with explicit permission, or any activity that violates laws, policies, or ethics.
 
-By using, copying, or modifying this repository, **you accept full responsibility for compliance** with applicable laws and policies. If you do not agree, **do not use this code**.
-
----
-
-## Why MD5 is considered broken (high level)
-
-MD5 is no longer appropriate for modern security controls because:
-
-- **Collision resistance is broken**: collisions and even chosen-prefix collisions have been demonstrated in practice (historically enabling serious abuse cases such as forged certificate chains). :contentReference[oaicite:4]{index=4}
-- Standards bodies and protocol specifications have moved to **deprecate MD5 in security contexts**, particularly for signatures and modern protocol usage.
+By using or modifying this repository, you accept full responsibility for compliant use.
 
 ---
 
-## Operational safety notes (for defenders)
-
-If you are using this repository for training:
-- Use only **synthetic test data** (no real user passwords/hashes).
-- Run only on **isolated lab systems**.
-- Record an **authorization statement** (scope, owner approval, time window) as evidence of legitimate testing.
-
----
-
-## Repository contents
-
-- `md5_collision_GPU.py` — Python proof-of-concept using PyOpenCL to run MD5 brute-force search on GPU.
+## Repo contents (typical)
+- `md5_collision_GPU.py` — MD5 GPU brute-force demo
+- `sha3_gpu_bruteforce_demo.py` — SHA3-256 GPU brute-force demo
+- `requirements.txt` / `requirements-lock.txt`
+- `HOW-TO.md` — environment setup guide
+- `docs/` — graphs/images for the README (recommended)
 
 ---
 
-## Contact / context
-
-If you are reviewing this as part of an audit / security assessment:
-- The project should be treated as a **training artifact**, not as a production component.
-- Its value is in demonstrating why **legacy hashing choices create avoidable risk**.
+## Notes for instructors
+- Keep the demo ethical: use synthetic data and an isolated lab machine.
+- Emphasize the right lesson: **fast hashes are bad for password storage**; use Argon2/bcrypt/scrypt.

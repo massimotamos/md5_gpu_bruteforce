@@ -287,7 +287,7 @@ def main():
                 break
 
             current = min(CHUNK, suffix_total - start_index)
-            global_size = (int(current),)
+            global_size = (int(global_size),)
             local_size = (256,) if 256 <= max_wg else None
 
             # args:
@@ -306,7 +306,7 @@ def main():
                 result_buf
             )
 
-            cl.enqueue_nd_range_kernel(queue, kernel, global_size, local_size)
+            cl.enqueue_nd_range_kernel(queue, kernel, global_size, None)
             queue.finish()
 
             # check after each chunk

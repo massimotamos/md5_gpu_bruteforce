@@ -102,14 +102,15 @@ It illustrates the key point: **SHA3-256 is slower than MD5**, but still fast en
 
 | Len | Charset | MD5 Rate | MD5 Time(s) | SHA3-256 Rate | SHA3-256 Time(s) | Speedup (MD5/SHA3) |
 |---:|---:|---:|---:|---:|---:|---:|
-| 1 | 26 | 72.87 KH/s | 0.00 | 78.40 KH/s | 0.00 | 0.93x |
-| 2 | 26 | 1.94 MH/s | 0.00 | 2.24 MH/s | 0.00 | 0.87x |
-| 3 | 26 | 43.35 MH/s | 0.00 | 54.58 MH/s | 0.00 | 0.79x |
-| 4 | 26 | 1.06 GH/s | 0.00 | 797.20 MH/s | 0.00 | 1.33x |
-| 5 | 26 | 5.52 GH/s | 0.00 | 2.00 GH/s | 0.01 | 2.76x |
-| 6 | 26 | 6.67 GH/s | 0.05 | 2.25 GH/s | 0.14 | 2.96x |
+| 1 | 26 | 72.84 KH/s | 0.00 | 80.52 KH/s | 0.00 | 0.90x |
+| 2 | 26 | 1.99 MH/s | 0.00 | 2.21 MH/s | 0.00 | 0.90x |
+| 3 | 26 | 49.24 MH/s | 0.00 | 33.78 MH/s | 0.00 | 1.46x |
+| 4 | 26 | 933.01 MH/s | 0.00 | 810.47 MH/s | 0.00 | 1.15x |
+| 5 | 26 | 5.68 GH/s | 0.00 | 2.00 GH/s | 0.01 | 2.84x |
+| 6 | 26 | 6.67 GH/s | 0.05 | 2.24 GH/s | 0.14 | 2.98x |
 | 7 | 26 | 3.32 GH/s | 1.20 | 1.11 GH/s | 3.60 | 2.99x |
-| 8 | 26 | 3.11 GH/s | 31.49 | 1.02 GH/s | 95.12 | 3.05x |
+| 8 | 26 | 3.11 GH/s | 31.46 | 1.02 GH/s | 95.14 | 3.05x |
+| 9 | 26 | 3.08 GH/s | 815.65 | 998.97 MH/s | 2514.59 | 3.08x |
 
 ### Graphs
 Add the generated images to the repository (suggested location: `docs/`) and the README will render them on GitHub.

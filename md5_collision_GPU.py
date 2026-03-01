@@ -9,7 +9,6 @@ import numpy as np
 import time
 import string
 import hashlib
-import math
 import sys
 import itertools
 
@@ -97,14 +96,13 @@ __kernel void md5_suffix_kernel(
     uint d0 = 0x10325476;
 
     // Single-block message buffer (works up to 55 bytes)
-    // (we only use msg_len=10 in your demo)
     uchar msg[64] = {0};
     for (uint i = 0; i < msg_len; i++) {
         msg[i] = plaintext[i];
     }
     msg[msg_len] = (uchar)0x80;
 
-    // 64-bit length in bits
+    // 64-bit length in bits (little-endian stored into msg[56..63])
     ulong bit_len = ((ulong)msg_len) * 8;
     msg[56] = (uchar)(bit_len & 0xFF);
     msg[57] = (uchar)((bit_len >> 8) & 0xFF);
@@ -195,9 +193,12 @@ def main():
     charset = string.ascii_letters + string.digits + string.punctuation
     charset_len = len(charset)  # 94
 
-    target_string = input("Enter a target string of length 10 (chars must be in [A-Za-z0-9 punctuation]): ").rstrip("\n")
-    if len(target_string) != 10:
-        print("ERROR: This demo is configured for length=10.")
+    target_string = input(
+        "Enter a target string of length 1..10 (chars must be in [A-Za-z0-9 punctuation]): "
+    ).rstrip("\n")
+
+    if not (1 <= len(target_string) <= 10):
+        print("ERROR: Target length must be between 1 and 10.")
         sys.exit(1)
 
     # Validate charset membership
@@ -212,17 +213,21 @@ def main():
     print(f"Target MD5 hash: {target_hash_hex}")
     print(f"Charset length:  {charset_len} (letters+digits+punctuation; no space)")
 
-    # Split: CPU prefix, GPU suffix (to fit u64 indexing)
-    prefix_len = 2
-    suffix_len = 8
-    msg_len = prefix_len + suffix_len
+    # Total length of the brute-forced plaintext
+    total_len = len(target_string)
+
+    # Split: CPU prefix, GPU suffix
+    # Keep CPU prefix small for usability; for short strings adapt gracefully.
+    prefix_len = min(2, total_len)
+    suffix_len = total_len - prefix_len
+    msg_len = prefix_len + suffix_len  # == total_len
 
     if msg_len > 24:
         print("ERROR: msg_len exceeds MAX_LEN in kernel.")
         sys.exit(1)
 
     # Suffix total must fit u64
-    suffix_total = pow(charset_len, suffix_len)
+    suffix_total = pow(charset_len, suffix_len)  # if suffix_len==0 => 1
     MAX_U64 = (1 << 64) - 1
     if suffix_total > MAX_U64:
         print("ERROR: suffix index space exceeds 64-bit; reduce suffix_len or charset.")
@@ -259,15 +264,14 @@ def main():
     program = cl.Program(context, kernel_code).build()
     kernel = program.md5_suffix_kernel
 
-    # Chunking: keep it reasonable; 10–50 million is usually safer than 1B
+    # Chunking: keep it reasonable (tune if needed)
     CHUNK = 25_000_000
 
-    # Iterate all prefixes on CPU
     start_time = time.time()
     checked_prefixes = 0
+    total_prefixes = charset_len ** prefix_len
 
-    # Precompute prefix indices for speed
-    # 94^2 = 8,836 prefixes => fine
+    # Iterate all prefixes on CPU
     for p_idx in itertools.product(range(charset_len), repeat=prefix_len):
         checked_prefixes += 1
 
@@ -281,18 +285,17 @@ def main():
         # Launch GPU over suffix space in chunks
         start_index = 0
         while start_index < suffix_total:
-            # optional early-out: if already found, stop launching
+            # early-out check
             cl.enqueue_copy(queue, found_np, found_buf)
             if found_np[0] == 1:
                 break
 
-            current = min(CHUNK, suffix_total - start_index)
-            global_size = (int(global_size),)
-            local_size = (256,) if 256 <= max_wg else None
+            current = int(min(CHUNK, suffix_total - start_index))
+
+            # NDRange: global is number of candidates in this chunk
+            global_size = (current,)
 
             # args:
-            # charset, charset_length, prefix, prefix_len, suffix_len,
-            # start_index, suffix_total, target_hash, found_flag, result_plaintext
             kernel.set_args(
                 charset_buf,
                 np.uint32(charset_len),
@@ -306,6 +309,7 @@ def main():
                 result_buf
             )
 
+            # Reliable across devices: let OpenCL choose local size
             cl.enqueue_nd_range_kernel(queue, kernel, global_size, None)
             queue.finish()
 
@@ -318,14 +322,14 @@ def main():
                 print("\nFOUND!")
                 print(f"Plaintext:  {found_plain}")
                 print(f"Time:       {elapsed:.2f}s")
-                print(f"Prefixes tried: {checked_prefixes}/{charset_len**prefix_len}")
+                print(f"Prefixes tried: {checked_prefixes}/{total_prefixes}")
                 return
 
             start_index += current
 
         # progress (coarse)
         if checked_prefixes % 250 == 0:
-            pct = (checked_prefixes / (charset_len ** prefix_len)) * 100.0
+            pct = (checked_prefixes / total_prefixes) * 100.0
             sys.stdout.write(f"\rPrefix progress: {pct:.2f}%")
             sys.stdout.flush()
 

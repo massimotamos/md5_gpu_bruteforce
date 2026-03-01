@@ -37,6 +37,43 @@ The original goal of this project was to provide a **hands-on, management-level 
 
 ---
 
+## Concrete guidance: how to choose a “hackable” string
+
+Pick parameters so the expected crack time is **10–60 seconds** on your RTX 5060 Ti, so you can demo it live.
+
+### Expected tries (average-case)
+
+Let:
+
+- Charset size: **C**
+- Length: **L**
+- Search space: **C^L**
+
+For a random target, the expected number of tries is approximately half the search space:
+
+- **Expected tries ≈ (C^L) / 2**
+
+### Examples (average-case tries)
+
+- **Digits only** (C = 10), **L = 8**  
+  Expected tries ≈ 0.5 × 10^8 = **50 million** (often “instant” on GPU)
+
+- **Lowercase letters** (C = 26), **L = 7**  
+  Expected tries ≈ 0.5 × 8.0e9 ≈ **4e9** (seconds to minutes depending on implementation)
+
+- **Alphanumeric** (C = 62), **L = 7**  
+  Expected tries ≈ 0.5 × 3.5e12 ≈ **1.8e12** (minutes to hours)
+
+- **Full 94-char charset** (letters + digits + punctuation), **L = 7**  
+  Expected tries ≈ 0.5 × 6.48e13 ≈ **3.24e13** (hours unless very optimized)
+
+### Practical rule of thumb for a live demo
+
+For a live demo target:
+- Use **C = 10..36** and **L = 7..9**, depending on your measured throughput (hashes/sec).
+
+---
+
 ## Security & legal disclaimer (restricted use)
 
 **RESTRICTED USE — READ CAREFULLY**

@@ -10,20 +10,14 @@ import time
 import string
 import hashlib
 import sys
-import itertools
 
 os.environ["PYOPENCL_COMPILER_OUTPUT"] = "1"
 
 # ----------------------------
-# OpenCL Kernel Code (MD5, single-block, GPU brute force on suffix)
+# OpenCL Kernel Code (MD5, single-block, GPU brute force)
 # ----------------------------
 kernel_code = r"""
-#define F(x, y, z) ((x & y) | (~x & z))
-#define G(x, y, z) ((x & z) | (y & ~z))
-#define H(x, y, z) (x ^ y ^ z)
-#define I(x, y, z) (y ^ (x | ~z))
 #define LEFTROTATE(x, c) (((x) << (c)) | ((x) >> (32 - (c))))
-
 #define MAX_LEN 24
 
 __constant uint T[64] = {
@@ -55,37 +49,39 @@ __constant uint S[64] = {
     6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21
 };
 
-__kernel void md5_suffix_kernel(
+__kernel void md5_bruteforce_kernel(
     __global const uchar* charset,
     const uint charset_length,
-    __global const uchar* prefix,
-    const uint prefix_len,
-    const uint suffix_len,
+    const uint msg_len,
     const ulong start_index,
-    const ulong suffix_total,
+    const ulong total,
     __global const uchar* target_hash,
     __global int* found_flag,
-    __global uchar* result_plaintext   // length = prefix_len + suffix_len
+    __global uchar* result_plaintext   // length = msg_len
 ) {
     if (*found_flag) return;
 
     ulong gid = (ulong)get_global_id(0);
     ulong idx = start_index + gid;
-    if (idx >= suffix_total) return;
+    if (idx >= total) return;
 
-    uint msg_len = prefix_len + suffix_len;
     if (msg_len > MAX_LEN) return;
 
-    // Build plaintext = prefix + suffix(idx)
+    // Build plaintext from idx in base charset_length
     uchar plaintext[MAX_LEN] = {0};
+<<<<<<< HEAD
 
     for (uint i = 0; i < prefix_len; i++) {
         plaintext[i] = prefix[i];
     }
 
+=======
+>>>>>>> dacf054 (GPU Only)
     ulong temp = idx;
-    for (int pos = (int)suffix_len - 1; pos >= 0; pos--) {
-        plaintext[prefix_len + (uint)pos] = charset[temp % charset_length];
+
+    // Fill from right to left
+    for (int pos = (int)msg_len - 1; pos >= 0; pos--) {
+        plaintext[(uint)pos] = charset[temp % charset_length];
         temp /= charset_length;
     }
 
@@ -102,7 +98,7 @@ __kernel void md5_suffix_kernel(
     }
     msg[msg_len] = (uchar)0x80;
 
-    // 64-bit length in bits (little-endian stored into msg[56..63])
+    // 64-bit length in bits (little-endian)
     ulong bit_len = ((ulong)msg_len) * 8;
     msg[56] = (uchar)(bit_len & 0xFF);
     msg[57] = (uchar)((bit_len >> 8) & 0xFF);
@@ -189,7 +185,6 @@ __kernel void md5_suffix_kernel(
 """
 
 def main():
-    # Full punctuation + letters + digits, excluding space
     charset = string.ascii_letters + string.digits + string.punctuation
     charset_len = len(charset)  # 94
 
@@ -201,18 +196,20 @@ def main():
         print("ERROR: Target length must be between 1 and 10.")
         sys.exit(1)
 
-    # Validate charset membership
     bad = [c for c in target_string if c not in charset]
     if bad:
         print(f"ERROR: Target contains characters not in charset: {bad}")
         sys.exit(1)
 
+    msg_len = len(target_string)
     target_hash_hex = hashlib.md5(target_string.encode("ascii")).hexdigest()
     target_hash_bytes = bytes.fromhex(target_hash_hex)
+
     print(f"Target string:   {target_string}")
     print(f"Target MD5 hash: {target_hash_hex}")
     print(f"Charset length:  {charset_len} (letters+digits+punctuation; no space)")
 
+<<<<<<< HEAD
     # Total length of the brute-forced plaintext
     total_len = len(target_string)
 
@@ -228,12 +225,20 @@ def main():
 
     # Suffix total must fit u64
     suffix_total = pow(charset_len, suffix_len)  # if suffix_len==0 => 1
+=======
+    # Total candidates for exact-length brute force
+    total = pow(charset_len, msg_len)
+>>>>>>> dacf054 (GPU Only)
     MAX_U64 = (1 << 64) - 1
-    if suffix_total > MAX_U64:
-        print("ERROR: suffix index space exceeds 64-bit; reduce suffix_len or charset.")
+    if total > MAX_U64:
+        print("ERROR: search space exceeds 64-bit indexing; reduce length or charset.")
         sys.exit(1)
 
+<<<<<<< HEAD
     # OpenCL setup (choose first platform/device like your original)
+=======
+    # OpenCL setup
+>>>>>>> dacf054 (GPU Only)
     platforms = cl.get_platforms()
     if not platforms:
         print("ERROR: No OpenCL platforms found.")
@@ -247,23 +252,28 @@ def main():
     print(f"OpenCL device: {device.name}")
     print(f"Max work-group size: {max_wg}")
 
-    # Buffers
-    mf = cl.mem_flags
+    # Host arrays
     charset_np = np.frombuffer(charset.encode("ascii"), dtype=np.uint8)
     target_hash_np = np.frombuffer(target_hash_bytes, dtype=np.uint8)
     found_np = np.zeros(1, dtype=np.int32)
     result_np = np.zeros(msg_len, dtype=np.uint8)
 
+    # Buffers
+    mf = cl.mem_flags
     charset_buf = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=charset_np)
     target_hash_buf = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=target_hash_np)
     found_buf = cl.Buffer(context, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=found_np)
     result_buf = cl.Buffer(context, mf.WRITE_ONLY, size=msg_len)
-    prefix_buf = cl.Buffer(context, mf.READ_ONLY, size=prefix_len)
 
+<<<<<<< HEAD
     # Build
+=======
+    # Build + kernel
+>>>>>>> dacf054 (GPU Only)
     program = cl.Program(context, kernel_code).build()
-    kernel = program.md5_suffix_kernel
+    kernel = program.md5_bruteforce_kernel
 
+<<<<<<< HEAD
     # Chunking: keep it reasonable (tune if needed)
     CHUNK = 25_000_000
 
@@ -274,22 +284,50 @@ def main():
     # Iterate all prefixes on CPU
     for p_idx in itertools.product(range(charset_len), repeat=prefix_len):
         checked_prefixes += 1
+=======
+    # Chunking (tune)
+    CHUNK = 25_000_000
 
-        # reset found flag for this prefix
-        found_np[0] = 0
-        cl.enqueue_copy(queue, found_buf, found_np)
+    start_time = time.perf_counter()
+    last_print = start_time
+    PRINT_EVERY_SECONDS = 1.0
 
-        prefix_bytes = bytes(charset_np[i] for i in p_idx)
-        cl.enqueue_copy(queue, prefix_buf, np.frombuffer(prefix_bytes, dtype=np.uint8))
+    start_index = 0
+    while start_index < total:
+        # early-out check
+        cl.enqueue_copy(queue, found_np, found_buf)
+        if found_np[0] == 1:
+            break
 
-        # Launch GPU over suffix space in chunks
-        start_index = 0
-        while start_index < suffix_total:
-            # early-out check
-            cl.enqueue_copy(queue, found_np, found_buf)
-            if found_np[0] == 1:
-                break
+        current = int(min(CHUNK, total - start_index))
+        global_size = (current,)
+>>>>>>> dacf054 (GPU Only)
 
+        kernel.set_args(
+            charset_buf,
+            np.uint32(charset_len),
+            np.uint32(msg_len),
+            np.uint64(start_index),
+            np.uint64(total),
+            target_hash_buf,
+            found_buf,
+            result_buf
+        )
+
+        # Let the driver choose a valid local size (robust)
+        cl.enqueue_nd_range_kernel(queue, kernel, global_size, None)
+        queue.finish()
+
+        # check after chunk
+        cl.enqueue_copy(queue, found_np, found_buf)
+        if found_np[0] == 1:
+            cl.enqueue_copy(queue, result_np, result_buf)
+            found_plain = result_np.tobytes().decode("ascii", errors="strict")
+            elapsed = time.perf_counter() - start_time
+            tested = start_index + current
+            rate = tested / elapsed if elapsed > 0 else 0.0
+
+<<<<<<< HEAD
             current = int(min(CHUNK, suffix_total - start_index))
 
             # NDRange: global is number of candidates in this chunk
@@ -307,8 +345,32 @@ def main():
                 target_hash_buf,
                 found_buf,
                 result_buf
-            )
+=======
+            print("\nFOUND!")
+            print(f"Plaintext:  {found_plain}")
+            print(f"Time:       {elapsed:.2f}s")
+            print(f"Rate:       {_fmt_rate(rate)}")
+            return
 
+        # status
+        now = time.perf_counter()
+        if (now - last_print) >= PRINT_EVERY_SECONDS:
+            tested = start_index + current
+            elapsed = now - start_time
+            rate = tested / elapsed if elapsed > 0 else 0.0
+            remaining = total - tested
+            eta = remaining / rate if rate > 0 else float("inf")
+            pct = (tested / total) * 100.0 if total else 0.0
+
+            sys.stdout.write(
+                f"\rProgress: {pct:6.2f}% | Tested: {tested:.3e}/{total:.3e} | "
+                f"Rate: {_fmt_rate(rate)} | ETA: {_fmt_secs(eta)}"
+>>>>>>> dacf054 (GPU Only)
+            )
+            sys.stdout.flush()
+            last_print = now
+
+<<<<<<< HEAD
             # Reliable across devices: let OpenCL choose local size
             cl.enqueue_nd_range_kernel(queue, kernel, global_size, None)
             queue.finish()
@@ -334,6 +396,12 @@ def main():
             sys.stdout.flush()
 
     elapsed = time.time() - start_time
+=======
+        start_index += current
+
+    elapsed = time.perf_counter() - start_time
+    rate_final = total / elapsed if elapsed > 0 else 0.0
+>>>>>>> dacf054 (GPU Only)
     print("\nNot found.")
     print(f"Time: {elapsed:.2f}s")
 

@@ -1,0 +1,63 @@
+MD5_GPU_BRUTEFORCE SECURITY TRAINING ONLY LICENSE (STO-1.0)
+
+Copyright (c) 2026 Massimo Tamos
+
+Permission is granted to view, download, and use this software and associated
+documentation files (the "Software") solely for Authorized Defensive Purposes
+(as defined below), subject to the following conditions:
+
+1) DEFINITIONS
+"Authorized Defensive Purposes" means:
+  a) security awareness, education, and training activities,
+  b) internal demonstrations in controlled environments,
+  c) defensive testing, validation, or research performed ONLY on systems,
+     accounts, data, and hashes that you own or for which you have written
+     permission from the legal owner,
+  d) academic research conducted in compliance with applicable laws and
+     institutional policies.
+
+"Unauthorized Use" means any use of the Software that:
+  a) targets or attempts to access, crack, brute force, or otherwise compromise
+     systems, accounts, services, data, or hashes without explicit written
+     authorization from the legal owner, or
+  b) violates any applicable law, regulation, contract, policy, or ethical
+     guideline, or
+  c) is intended to facilitate wrongdoing, including but not limited to
+     credential theft, unauthorized access, or evasion of security controls.
+
+2) RESTRICTIONS
+You MUST NOT use the Software for any purpose other than Authorized Defensive
+Purposes. Unauthorized Use is explicitly prohibited.
+
+You MUST NOT deploy the Software in production environments or against any
+real-world user credentials, password databases, or third-party services.
+
+You MUST NOT use the Software to provide cracking or offensive security services
+to others.
+
+3) REDISTRIBUTION
+You may redistribute the Software (source or binary) only if:
+  a) you include this license text in full with the redistribution, and
+  b) you do not remove or alter copyright notices, and
+  c) you clearly and prominently preserve the Authorized Defensive Purposes and
+     Restrictions sections.
+
+4) NO WARRANTY
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+5) TERMINATION
+Any breach of this license automatically terminates your rights to use the
+Software. Upon termination, you must cease all use and destroy all copies in
+your possession or control.
+
+6) SEVERABILITY
+If any provision of this license is held unenforceable, the remaining
+provisions remain in effect.
+
+Version: STO-1.0

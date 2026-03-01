@@ -71,7 +71,6 @@ __kernel void md5_bruteforce_kernel(
     uchar plaintext[MAX_LEN] = {0};
     ulong temp = idx;
 
-    // Fill from right to left
     for (int pos = (int)msg_len - 1; pos >= 0; pos--) {
         plaintext[(uint)pos] = charset[temp % charset_length];
         temp /= charset_length;
@@ -85,12 +84,9 @@ __kernel void md5_bruteforce_kernel(
 
     // Single-block message buffer (works up to 55 bytes)
     uchar msg[64] = {0};
-    for (uint i = 0; i < msg_len; i++) {
-        msg[i] = plaintext[i];
-    }
+    for (uint i = 0; i < msg_len; i++) msg[i] = plaintext[i];
     msg[msg_len] = (uchar)0x80;
 
-    // 64-bit length in bits (little-endian)
     ulong bit_len = ((ulong)msg_len) * 8;
     msg[56] = (uchar)(bit_len & 0xFF);
     msg[57] = (uchar)((bit_len >> 8) & 0xFF);
@@ -101,7 +97,6 @@ __kernel void md5_bruteforce_kernel(
     msg[62] = (uchar)((bit_len >> 48) & 0xFF);
     msg[63] = (uchar)((bit_len >> 56) & 0xFF);
 
-    // Parse into 16 32-bit words
     uint M[16];
     for (uint i = 0; i < 16; i++) {
         M[i] = ((uint)msg[i * 4]) |
@@ -127,7 +122,6 @@ __kernel void md5_bruteforce_kernel(
             f = C ^ (B | ~D);
             g = (7 * i) % 16;
         }
-
         f = f + A + T[i] + M[g];
         A = D;
         D = C;
@@ -137,29 +131,24 @@ __kernel void md5_bruteforce_kernel(
 
     A += a0; B += b0; C += c0; D += d0;
 
-    // digest little-endian
     uchar hash[16];
     hash[0]  = (uchar)(A & 0xFF);
     hash[1]  = (uchar)((A >> 8) & 0xFF);
     hash[2]  = (uchar)((A >> 16) & 0xFF);
     hash[3]  = (uchar)((A >> 24) & 0xFF);
-
     hash[4]  = (uchar)(B & 0xFF);
     hash[5]  = (uchar)((B >> 8) & 0xFF);
     hash[6]  = (uchar)((B >> 16) & 0xFF);
     hash[7]  = (uchar)((B >> 24) & 0xFF);
-
     hash[8]  = (uchar)(C & 0xFF);
     hash[9]  = (uchar)((C >> 8) & 0xFF);
     hash[10] = (uchar)((C >> 16) & 0xFF);
     hash[11] = (uchar)((C >> 24) & 0xFF);
-
     hash[12] = (uchar)(D & 0xFF);
     hash[13] = (uchar)((D >> 8) & 0xFF);
     hash[14] = (uchar)((D >> 16) & 0xFF);
     hash[15] = (uchar)((D >> 24) & 0xFF);
 
-    // Compare
     int match = 1;
     for (uint i = 0; i < 16; i++) {
         if (hash[i] != target_hash[i]) { match = 0; break; }
@@ -168,9 +157,7 @@ __kernel void md5_bruteforce_kernel(
     if (match) {
         int res = atomic_cmpxchg(found_flag, 0, 1);
         if (res == 0) {
-            for (uint i = 0; i < msg_len; i++) {
-                result_plaintext[i] = plaintext[i];
-            }
+            for (uint i = 0; i < msg_len; i++) result_plaintext[i] = plaintext[i];
         }
     }
 }
@@ -191,7 +178,6 @@ def _fmt_secs(seconds: float) -> str:
         return f"{m:02d}m {s:02d}s"
     return f"{s}s"
 
-
 def _fmt_rate(rate: float) -> str:
     if rate < 1e3:
         return f"{rate:.0f} H/s"
@@ -202,7 +188,6 @@ def _fmt_rate(rate: float) -> str:
     if rate < 1e12:
         return f"{rate/1e9:.2f} GH/s"
     return f"{rate/1e12:.2f} TH/s"
-
 
 def main():
     charset = string.ascii_letters + string.digits + string.punctuation
@@ -229,7 +214,6 @@ def main():
     print(f"Target MD5 hash: {target_hash_hex}")
     print(f"Charset length:  {charset_len} (letters+digits+punctuation; no space)")
 
-    # Total candidates for exact-length brute force
     total = pow(charset_len, msg_len)
     MAX_U64 = (1 << 64) - 1
     if total > MAX_U64:
@@ -250,14 +234,13 @@ def main():
     print(f"OpenCL device: {device.name}")
     print(f"Max work-group size: {max_wg}")
 
-    # Host arrays
+    # Buffers
+    mf = cl.mem_flags
     charset_np = np.frombuffer(charset.encode("ascii"), dtype=np.uint8)
     target_hash_np = np.frombuffer(target_hash_bytes, dtype=np.uint8)
     found_np = np.zeros(1, dtype=np.int32)
     result_np = np.zeros(msg_len, dtype=np.uint8)
 
-    # Buffers
-    mf = cl.mem_flags
     charset_buf = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=charset_np)
     target_hash_buf = cl.Buffer(context, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=target_hash_np)
     found_buf = cl.Buffer(context, mf.READ_WRITE | mf.COPY_HOST_PTR, hostbuf=found_np)
@@ -267,20 +250,19 @@ def main():
     program = cl.Program(context, kernel_code).build()
     kernel = program.md5_bruteforce_kernel
 
-    # Chunking (tune)
-    CHUNK = 25_000_000
+    # Tune these:
+    CHUNK = 100_000_000          # bigger chunk => fewer launches => less CPU overhead
+    CHECK_EVERY = 20             # only read found_flag every N chunks (reduces sync)
+    PRINT_EVERY_SECONDS = 2.0    # print less often to reduce CPU chatter
 
     start_time = time.perf_counter()
     last_print = start_time
-    PRINT_EVERY_SECONDS = 1.0
 
     start_index = 0
-    while start_index < total:
-        # early-out check
-        cl.enqueue_copy(queue, found_np, found_buf)
-        if found_np[0] == 1:
-            break
+    chunk_count = 0
+    last_event = None
 
+    while start_index < total:
         current = int(min(CHUNK, total - start_index))
         global_size = (current,)
 
@@ -295,29 +277,15 @@ def main():
             result_buf
         )
 
-        # Let the driver choose a valid local size (robust)
-        cl.enqueue_nd_range_kernel(queue, kernel, global_size, None)
-        queue.finish()
+        # enqueue kernel; DO NOT finish() here
+        last_event = cl.enqueue_nd_range_kernel(queue, kernel, global_size, None)
+        chunk_count += 1
 
-        # check after chunk
-        cl.enqueue_copy(queue, found_np, found_buf)
-        if found_np[0] == 1:
-            cl.enqueue_copy(queue, result_np, result_buf)
-            found_plain = result_np.tobytes().decode("ascii", errors="strict")
-            elapsed = time.perf_counter() - start_time
-            tested = start_index + current
-            rate = tested / elapsed if elapsed > 0 else 0.0
+        tested = start_index + current
 
-            print("\nFOUND!")
-            print(f"Plaintext:  {found_plain}")
-            print(f"Time:       {elapsed:.2f}s")
-            print(f"Rate:       {_fmt_rate(rate)}")
-            return
-
-        # status
+        # periodic progress (no GPU sync needed)
         now = time.perf_counter()
         if (now - last_print) >= PRINT_EVERY_SECONDS:
-            tested = start_index + current
             elapsed = now - start_time
             rate = tested / elapsed if elapsed > 0 else 0.0
             remaining = total - tested
@@ -331,14 +299,46 @@ def main():
             sys.stdout.flush()
             last_print = now
 
+        # Only sync/check occasionally to reduce CPU usage
+        if (chunk_count % CHECK_EVERY) == 0:
+            # ensure the most recent kernel is done before reading found flag
+            last_event.wait()
+            cl.enqueue_copy(queue, found_np, found_buf).wait()
+
+            if found_np[0] == 1:
+                cl.enqueue_copy(queue, result_np, result_buf).wait()
+                found_plain = result_np.tobytes().decode("ascii", errors="strict")
+                elapsed = time.perf_counter() - start_time
+                rate = tested / elapsed if elapsed > 0 else 0.0
+
+                print("\nFOUND!")
+                print(f"Plaintext:  {found_plain}")
+                print(f"Time:       {elapsed:.2f}s")
+                print(f"Rate:       {_fmt_rate(rate)}")
+                return
+
         start_index += current
+
+    # final sync to be sure we didn't miss a hit in the last partial batch
+    if last_event is not None:
+        last_event.wait()
+        cl.enqueue_copy(queue, found_np, found_buf).wait()
+        if found_np[0] == 1:
+            cl.enqueue_copy(queue, result_np, result_buf).wait()
+            found_plain = result_np.tobytes().decode("ascii", errors="strict")
+            elapsed = time.perf_counter() - start_time
+            rate = total / elapsed if elapsed > 0 else 0.0
+            print("\nFOUND!")
+            print(f"Plaintext:  {found_plain}")
+            print(f"Time:       {elapsed:.2f}s")
+            print(f"Rate:       {_fmt_rate(rate)}")
+            return
 
     elapsed = time.perf_counter() - start_time
     rate_final = total / elapsed if elapsed > 0 else 0.0
     print("\nNot found.")
     print(f"Time: {elapsed:.2f}s")
     print(f"Rate: {_fmt_rate(rate_final)}")
-
 
 if __name__ == "__main__":
     main()

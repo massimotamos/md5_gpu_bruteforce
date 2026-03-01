@@ -28,7 +28,7 @@ sudo apt install -y python-is-python3
 
 ### 1.1 Create an SSH key
 ```bash
-ssh-keygen -t ed25519 -C "tamosma@ai-llm" -f ~/.ssh/id_ed25519
+ssh-keygen -t ed25519 -C "<your-user>@<your-GPU-server>" -f ~/.ssh/id_ed25519
 ```
 
 ### 1.2 Start ssh-agent and load the key
@@ -67,11 +67,8 @@ From your workspace directory:
 ```bash
 mkdir -p ~/dev
 cd ~/dev
-git clone git@github.com:<OWNER>/<REPO>.git
+git clone git@github.com:massimotamos/md5_gpu_bruteforce.git
 cd md5_gpu_bruteforce
-```
-
-> Replace `<OWNER>/<REPO>` with the real GitHub path.
 
 ---
 
